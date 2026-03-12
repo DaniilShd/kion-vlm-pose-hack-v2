@@ -1,0 +1,29 @@
+# Настройки VLM модели
+vlm:
+  model:
+    name: "THUDM/glm-4v-9b"
+    device: "cuda"
+    use_4bit: true
+    # Простой путь к папке с моделью
+    local_path: "models/glm-4v"
+    
+  generation:
+    max_new_tokens: 512
+    temperature: 0.1
+    top_p: 0.95
+    do_sample: false
+  
+  prompts:
+    moderation: |
+      Ты — система модерации контента. Посмотри на картинку и ответь строго в формате JSON.
+      Поля ответа:
+      - description: краткое описание (1 предложение)
+      - has_smoking: true/false
+      - has_same_gender_intimacy: true/false
+      - has_violence: true/false
+      - participants_count: число людей
+      - confidence: high/medium/low
+
+  logging:
+    verbose: true
+    save_responses: true
