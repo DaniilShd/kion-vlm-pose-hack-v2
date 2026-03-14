@@ -1,128 +1,209 @@
+import os
+
+# =========================
+# CUDA FIXES
+# =========================
+
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import torch
-from transformers import AutoTokenizer, AutoModel, BitsAndBytesConfig
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+if torch.cuda.is_available():
+    torch.cuda.init()
+    torch.cuda.empty_cache()
+
+# =========================
+# Imports
+# =========================
+
+from transformers import AutoProcessor, AutoModelForImageTextToText
 from PIL import Image
 import cv2
 import yaml
 import glob
+import json
 import os
+import re
 
-# Load config
-with open("config/vlm_config.yaml") as f:
-    config = yaml.safe_load(f)['vlm']
+# =========================
+# Config
+# =========================
 
-model_name = config['model']['name']
-model_path = config['model']['local_path']
+MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
+INPUT_DIR = "data/input"
 
-# Create quantization config if using 4-bit
-quantization_config = None
-if config['model']['use_4bit']:
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4"
-    )
+with open("config/vlm_config.yaml", "r") as f:
+    vlm_config = yaml.safe_load(f)["vlm"]
 
-# Check if model exists
-if not os.path.exists(os.path.join(model_path, 'config.json')):
-    print(f"Downloading {model_name} to {model_path}...")
-    os.makedirs(model_path, exist_ok=True)
-    
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = AutoModel.from_pretrained(
-        model_name,
-        quantization_config=quantization_config,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        trust_remote_code=True
-    )
-    
-    tokenizer.save_pretrained(model_path)
-    model.save_pretrained(model_path)
-else:
-    print(f"Loading model from {model_path}")
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True, local_files_only=True)
-    
-    # Try loading with different approaches
-    try:
-        # First attempt: with quantization config
-        model = AutoModel.from_pretrained(
-            model_path,
-            quantization_config=quantization_config,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            trust_remote_code=True,
-            local_files_only=True
-        )
-    except (TypeError, AttributeError) as e:
-        print(f"First loading attempt failed: {e}")
-        print("Trying alternative loading method...")
-        
-        # Second attempt: without quantization
-        model = AutoModel.from_pretrained(
-            model_path,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            trust_remote_code=True,
-            local_files_only=True
-        )
+print(f"Loading model: {MODEL_ID}")
 
+# =========================
+# Device
+# =========================
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+if device == "cuda":
+    print("CUDA device:", torch.cuda.get_device_name(0))
+
+# =========================
+# Processor
+# =========================
+
+processor = AutoProcessor.from_pretrained(
+    MODEL_ID,
+    trust_remote_code=True
+)
+
+# =========================
+# Model
+# =========================
+
+model = AutoModelForImageTextToText.from_pretrained(
+    MODEL_ID,
+    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+    trust_remote_code=True,
+    low_cpu_mem_usage=True,
+    attn_implementation="sdpa"
+)
+
+model = model.to(device)
 model.eval()
 
-# Get first video
-videos = glob.glob("data/test_videos/*.mp4")
+if device == "cuda":
+    print(f"GPU memory used: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+
+# =========================
+# Load video
+# =========================
+
+videos = glob.glob(os.path.join(INPUT_DIR, "*.mp4"))
+
 if not videos:
     print("No videos found")
     exit()
 
-# Process first frame
-cap = cv2.VideoCapture(videos[0])
+video_path = videos[0]
+
+print("Processing:", os.path.basename(video_path))
+
+cap = cv2.VideoCapture(video_path)
 ret, frame = cap.read()
 cap.release()
 
-if ret:
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    prompt = config['prompts']['moderation']
-    
-    # For GLM-4V, we need to handle the input differently
-    # The exact format might vary based on the model version
-    try:
-        # Method 1: Using chat template (if supported)
-        inputs = tokenizer.apply_chat_template(
-            [{"role": "user", "image": image, "content": prompt}],
-            add_generation_prompt=True,
-            tokenize=True,
-            return_tensors="pt",
-            return_dict=True
-        )
-        
-        # Move inputs to model device
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
-        
-    except (AttributeError, TypeError):
-        # Method 2: Direct image+text input for GLM-4V
-        print("Using direct image+text input method")
-        inputs = tokenizer(
-            prompt,
-            images=[image],
-            return_tensors="pt",
-            padding=True
-        ).to(model.device)
-    
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=config['generation']['max_new_tokens'],
-            temperature=config['generation']['temperature'],
-            top_p=config['generation']['top_p'],
-            do_sample=True
-        )
-    
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    print("\n" + "="*50)
-    print(response)
-    print("="*50)
+if not ret:
+    print("Could not read frame")
+    exit()
 
-# Also print model info for debugging
-print(f"\nModel type: {type(model).__name__}")
-print(f"Model device: {model.device}")
+frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+image = Image.fromarray(frame)
+
+# уменьшаем размер (важно для стабильности)
+image = image.resize((448, 448))
+
+# =========================
+# Prompt
+# =========================
+
+prompt = vlm_config["prompts"]["moderation"]
+
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "image", "image": image},
+            {"type": "text", "text": prompt}
+        ]
+    }
+]
+
+text = processor.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
+
+# =========================
+# Inputs
+# =========================
+
+inputs = processor(
+    text=[text],
+    images=[image],
+    return_tensors="pt"
+)
+
+inputs = {k: v.to(device) for k, v in inputs.items()}
+
+# =========================
+# Generate
+# =========================
+
+print("Generating...")
+
+with torch.inference_mode():
+
+    generated_ids = model.generate(
+        **inputs,
+        max_new_tokens=vlm_config["generation"]["max_new_tokens"],
+        do_sample=False
+    )
+
+# =========================
+# Decode
+# =========================
+
+output_ids = generated_ids[0][inputs["input_ids"].shape[1]:]
+
+response = processor.decode(
+    output_ids,
+    skip_special_tokens=True
+)
+
+print("\n" + "="*50)
+print("MODEL RESPONSE:")
+print("="*50)
+print(response)
+
+# =========================
+# Extract JSON
+# =========================
+
+json_match = re.search(r"\{.*\}", response, re.DOTALL)
+
+if json_match:
+    try:
+
+        result = json.loads(json_match.group())
+
+        print("\n" + "="*50)
+        print("PARSED JSON:")
+        print("="*50)
+
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+
+        output_file = os.path.splitext(video_path)[0] + "_analysis.json"
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        print("Saved to:", output_file)
+
+    except json.JSONDecodeError as e:
+        print("JSON parse error:", e)
+
+else:
+    print("No JSON found")
+
+# =========================
+# Cleanup
+# =========================
+
+if device == "cuda":
+    torch.cuda.empty_cache()
+
+print("="*50)

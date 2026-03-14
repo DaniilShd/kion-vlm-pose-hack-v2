@@ -1,21 +1,21 @@
 # Настройки VLM модели
 vlm:
   model:
-    name: "THUDM/glm-4v-9b"
+    name: "Qwen/Qwen3-VL-4B-Instruct"
     device: "cuda"
-    use_4bit: true
-    # Простой путь к папке с моделью
-    local_path: "models/glm-4v"
-    
+    use_4bit: false
+    # local_path: "models/glm-4.1v-9b-thinking-4bit"
+
   generation:
     max_new_tokens: 512
     temperature: 0.1
     top_p: 0.95
     do_sample: false
-  
+
   prompts:
     moderation: |
-      Ты — система модерации контента. Посмотри на картинку и ответь строго в формате JSON.
+      Ты — система модерации контента.
+      Посмотри на картинку и ответь строго в формате JSON.
       Поля ответа:
       - description: краткое описание (1 предложение)
       - has_smoking: true/false
