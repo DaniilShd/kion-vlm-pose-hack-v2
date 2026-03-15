@@ -1,16 +1,49 @@
-import os
-import subprocess
+import torch
+from mmengine.config import Config
+from mmengine.runner import load_checkpoint
+from mmaction.registry import MODELS
+from mmaction.utils import register_all_modules
+from mmaction.apis import inference_recognizer
 
-def download_with_wget(url, filename):
-    """Скачивание через wget"""
-    try:
-        subprocess.run(['wget', '-O', filename, url], check=True)
-        return True
-    except:
-        return False
+register_all_modules()
 
-# Использование:
-checkpoint_url = "https://download.openmmlab.com/mmaction/v1.0/skeleton/stgcn/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d_20221207-221aef19.pth"
-if not os.path.exists(checkpoint_url):
-    print("Скачивание через wget...")
-    download_with_wget(checkpoint_url, checkpoint_url)
+config = "configs/skeleton/stgcn/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d.py"
+checkpoint = "models/stgcn_ntu60.pth"
+
+print("Loading config...")
+cfg = Config.fromfile(config)
+
+print("Building model...")
+model = MODELS.build(cfg.model)
+
+print("Loading checkpoint...")
+load_checkpoint(model, checkpoint, map_location="cpu")
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = model.to(device)
+model.eval()
+
+print("Model ready on:", device)
+
+# ST-GCN input format
+# (N, C, T, V, M)
+
+N = 1
+M = 2 
+T = 100    # frames
+V = 17     # joints (COCO)     # persons
+C = 3      # x,y,score
+
+
+x = torch.randn(N, M, T, V, C).to(device)
+
+print("Input:", x.shape)
+
+data = dict(inputs=x)
+
+with torch.no_grad():
+    feats = model.backbone(x)
+    output = model.cls_head(feats)
+
+print("Output:", output.shape)
+print("Classes:", output.argmax(dim=1).item())

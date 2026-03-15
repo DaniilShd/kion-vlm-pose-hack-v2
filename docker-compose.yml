@@ -87,6 +87,7 @@ services:
       - ./cache:/app/cache
       - ./src:/app/src
       - ./config:/app/config
+      - ./scripts:/app/scripts
     shm_size: 16g
     deploy:
       resources:

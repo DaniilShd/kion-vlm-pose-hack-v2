@@ -1,12 +1,7 @@
-# Основные директории
-data_dir: "./data"
-input_dir: "./data/input"      # для входных видео
-results: "./data/results"      # для результатов обработки
-uploads: "./data/uploads"      # для загруженных файлов
-logs: "./logs"                 # для логов
-cache: "./cache"               # для кэша
-models: "./models"             # для сохранения моделей
-
-# Специфичные директории (для обратной совместимости)
-pose_detector: "models/yolo"
-glm4v_path: "models/glm-4v"
+checkpoints: models/checkpoints/
+configs: config/
+data: data/
+logs: logs/
+mmaction2_configs: config/mmaction2/
+models: models/
+results: data/results/
