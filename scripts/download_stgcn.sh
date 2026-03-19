@@ -2,28 +2,28 @@
 set -e
 
 echo "======================================"
-echo "Setting up ST-GCN (NTU60 XSub)"
+echo "Setting up PoseC3D (NTU60 XSub)"
 echo "======================================"
 
-# Создаём правильную структуру
-mkdir -p configs/skeleton/stgcn
+# Создаём структуру
+mkdir -p configs/skeleton/posec3d
 mkdir -p configs/_base_
 mkdir -p models
 
-echo "Downloading ST-GCN config..."
+echo "Downloading PoseC3D config..."
 
-wget -O configs/skeleton/stgcn/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d.py \
-https://raw.githubusercontent.com/open-mmlab/mmaction2/main/configs/skeleton/stgcn/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d.py
+wget -O configs/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint.py \
+https://raw.githubusercontent.com/open-mmlab/mmaction2/main/configs/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint.py
 
 echo "Downloading base runtime config..."
 
 wget -O configs/_base_/default_runtime.py \
 https://raw.githubusercontent.com/open-mmlab/mmaction2/main/configs/_base_/default_runtime.py
 
-echo "Downloading weights..."
+echo "Downloading PoseC3D weights..."
 
-wget -O models/stgcn_ntu60.pth \
-https://download.openmmlab.com/mmaction/v1.0/skeleton/stgcn/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d/stgcn_8xb16-joint-u100-80e_ntu60-xsub-keypoint-2d_20221129-484a394a.pth
+wget -O models/posec3d_ntu60.pth \
+https://download.openmmlab.com/mmaction/v1.0/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint_20220815-38db104b.pth
 
 echo "Checking structure..."
 
